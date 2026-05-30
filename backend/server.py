@@ -586,6 +586,25 @@ async def public_webinar(wid: str):
         "recording_video_id": w.get("recording_video_id") if w.get("status") == "ended" else None,
     }
 
+@api_router.get("/public/webinars/{wid}/recording")
+async def public_webinar_recording(wid: str):
+    """Public endpoint — returns the ended webinar's recording video (no auth)."""
+    w = await db.webinars.find_one({"id": wid}, {"_id": 0})
+    if not w: raise HTTPException(404, "Webinar not found")
+    if w.get("status") != "ended" or not w.get("recording_video_id"):
+        raise HTTPException(404, "Recording not available")
+    v = await db.videos.find_one({"id": w["recording_video_id"]}, {"_id": 0})
+    if not v: raise HTTPException(404, "Recording not found")
+    b = await db.brands.find_one({"user_id": w["host_id"]}, {"_id": 0, "user_id": 0}) or {}
+    return {
+        "id": v["id"], "title": v.get("title", ""),
+        "description": v.get("description", ""),
+        "url": v.get("url", ""), "thumbnail": v.get("thumbnail", ""),
+        "duration": v.get("duration", 0), "views": v.get("views", 0),
+        "brand": {**brand_defaults(), **b},
+        "webinar_title": w.get("title", ""),
+    }
+
 @api_router.post("/public/webinars/{wid}/register")
 async def register_for_webinar(wid: str, body: WebinarRegister):
     w = await db.webinars.find_one({"id": wid}, {"_id": 0})

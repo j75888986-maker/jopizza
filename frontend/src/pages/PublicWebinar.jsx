@@ -18,6 +18,7 @@ export default function PublicWebinar() {
   const { id } = useParams();
   const [w, setW] = useState(null);
   const [err, setErr] = useState(null);
+  const [recording, setRecording] = useState(null); // {url, brand, title} when ended
   const [registered, setRegistered] = useState(false);
   const [form, setForm] = useState({ email: "", name: "" });
   const [submitting, setSubmitting] = useState(false);
@@ -26,6 +27,15 @@ export default function PublicWebinar() {
 
   const load = () => axios.get(`${API}/public/webinars/${id}`).then(r=>setW(r.data)).catch(e=>setErr(e?.response?.data?.detail || "Webinar not found"));
   useEffect(() => { load(); }, [id]);   // eslint-disable-line
+
+  // When webinar enters "ended", fetch the public recording
+  useEffect(() => {
+    if (w?.status === "ended" && !recording) {
+      axios.get(`${API}/public/webinars/${id}/recording`)
+        .then(r => setRecording(r.data))
+        .catch(() => setRecording({ url: null }));
+    }
+  }, [w?.status, id, recording]);
 
   // Poll while live for new chunks
   useEffect(() => {
@@ -122,9 +132,24 @@ export default function PublicWebinar() {
           </div>
         )}
 
-        {w.status === "ended" && w.recording_video_id && (
-          <video src={`${BACKEND}/api/files/looma/webinars/${w.id}/chunk_00000.webm`}
-            controls className="w-full rounded-2xl nb-border nb-shadow-lg bg-ink aspect-video" data-testid="webinar-replay-player"/>
+        {w.status === "ended" && (
+          recording?.url ? (
+            <>
+              <video
+                src={recording.url.startsWith("/api/") ? `${BACKEND}${recording.url}` : recording.url}
+                controls
+                poster={recording.thumbnail || undefined}
+                className="w-full rounded-2xl nb-border nb-shadow-lg bg-ink aspect-video"
+                data-testid="webinar-replay-player"/>
+              <p className="text-sm text-ink/70 mt-3 text-center font-bold">📼 Recording — first published {new Date(w.scheduled_at || Date.now()).toLocaleDateString()}</p>
+            </>
+          ) : (
+            <div className="nb-card text-center py-12">
+              <CheckCircle2 size={48} className="mx-auto mb-3 text-ink"/>
+              <div className="font-heading text-xl">Webinar ended</div>
+              <p className="text-sm text-ink/70 mt-2">{recording === null ? "Loading recording…" : "Recording is being processed."}</p>
+            </div>
+          )
         )}
 
         {w.status === "scheduled" && !registered && (
