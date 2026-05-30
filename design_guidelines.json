@@ -1,0 +1,87 @@
+{
+  "theme": "light",
+  "archetype": "6 (Vibrant Play) with Classy Neo-Brutalist Twist",
+  "colors": {
+    "background": "#FFFBF0",
+    "foreground": "#121124",
+    "primary": "#1D1A3F",
+    "primary_foreground": "#FFFFFF",
+    "secondary": "#FF6B6B",
+    "secondary_foreground": "#FFFFFF",
+    "accent_mint": "#98D8C8",
+    "accent_gold": "#F4D068",
+    "muted": "#F3EFE6",
+    "border": "#121124"
+  },
+  "typography": {
+    "headings": "Outfit",
+    "body": "Nunito",
+    "weights": {
+      "heading": "700",
+      "body": "600",
+      "button": "800"
+    }
+  },
+  "spacing": {
+    "section": "py-24 md:py-32",
+    "container": "px-6 md:px-12 max-w-7xl mx-auto"
+  },
+  "border_radius": {
+    "cards": "rounded-2xl",
+    "buttons": "rounded-full"
+  },
+  "components": {
+    "button": "bg-secondary text-secondary_foreground rounded-full px-8 py-4 font-bold border-2 border-foreground shadow-[4px_4px_0px_0px_rgba(18,17,36,1)] hover:shadow-[0px_0px_0px_0px_rgba(18,17,36,1)] hover:translate-y-1 hover:translate-x-1 transition-all",
+    "card": "bg-white rounded-2xl border-2 border-foreground shadow-[8px_8px_0px_0px_rgba(18,17,36,1)] p-8",
+    "input": "bg-white border-2 border-foreground rounded-xl px-4 py-3 focus:ring-4 focus:ring-accent_mint/50 focus:outline-none transition-all font-body font-semibold text-foreground"
+  },
+  "media": {
+    "illustrations": {
+      "hero": "https://static.prod-images.emergentagent.com/jobs/f5c868bb-c528-4caa-a571-2da67658e4d9/images/ff98e7c10cc92d77823a81dc1b12270e7682541faa43bfb068a5dc424eb4c5ab.png",
+      "step_1_record": "https://static.prod-images.emergentagent.com/jobs/f5c868bb-c528-4caa-a571-2da67658e4d9/images/ab397772a2e0df998c56cab1e72347a338ca521c39c999b69666a2d6586bf525.png",
+      "step_2_edit": "https://static.prod-images.emergentagent.com/jobs/f5c868bb-c528-4caa-a571-2da67658e4d9/images/341144a61354b2bdb8ecb9a855fc34366be89b8d9047051d4b8207029c2a29af.png",
+      "step_3_share": "https://static.prod-images.emergentagent.com/jobs/f5c868bb-c528-4caa-a571-2da67658e4d9/images/fc682641f51da4cd59abc42076a5010e6fb273ca89e80300d76049cdc14a5d56.png",
+      "pricing_free": "https://static.prod-images.emergentagent.com/jobs/f5c868bb-c528-4caa-a571-2da67658e4d9/images/8f05d8139599871999250512ffd32c8adc462ad98d518df5f69090c5337f8430.png",
+      "pricing_pro": "https://static.prod-images.emergentagent.com/jobs/f5c868bb-c528-4caa-a571-2da67658e4d9/images/7c604fbac0a2a13df1cc4ac19c4c4c6b5c26de8f75b35686101a9fe01415479a.png",
+      "pricing_agency": "https://static.prod-images.emergentagent.com/jobs/f5c868bb-c528-4caa-a571-2da67658e4d9/images/64fac2fcc58a472d5e52a8c62ce609bf3690681ff4e518b7f95406ba6fd1d264.png"
+    },
+    "photography": {
+      "team_working": "https://images.unsplash.com/photo-1762784574847-16c5100cd1ff?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1OTN8MHwxfHNlYXJjaHwzfHxjcmVhdGl2ZSUyMHRlYW0lMjB3b3JraW5nJTIwbW9kZXJuJTIwb2ZmaWNlfGVufDB8fHx8MTc4MDEwMTQ2MHww&ixlib=rb-4.1.0&q=85",
+      "video_editor": "https://images.unsplash.com/photo-1758613656365-5195c3b96ba3?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2NzF8MHwxfHNlYXJjaHwxfHx2aWRlbyUyMGVkaXRvciUyMHBvcnRyYWl0JTIwcHJvZmVzc2lvbmFsfGVufDB8fHx8MTc4MDEwMTQ2MHww&ixlib=rb-4.1.0&q=85"
+    }
+  },
+  "pages": {
+    "landing": {
+      "hero": "Asymmetric Bento Layout. Left: massive H1 (Outfit font, tracking-tight), descriptive text, big playful Coral CTA. Right: hero_illustration inside a Mint/Gold abstract SVG blob container. Ensure background is warm cream (#FFFBF0).",
+      "how_it_works": "3-column grid. Each column uses the 'card' component style (white bg, 2px border, solid black shadow). Top of card: step illustration (step_1_record, etc.). Center aligned text with playful Outline font accents.",
+      "pricing": "3-tier pricing layout. Top of each card contains pricing illustration. Middle 'Pro' tier should have #FF6B6B (Coral) background instead of white, with white text, maintaining the 2px dark border and shadow.",
+      "features": "Alternating Left/Right content blocks using 'team_working' and 'video_editor' photos. Photos MUST have rounded-2xl, 2px border, and solid shadow to maintain the 'goofy but classy' Neo-brutalist theme."
+    },
+    "auth": {
+      "layout": "Split screen (50/50). Left side: full height Mint (#98D8C8) background with the 'hero_illustration' centered. Right side: White background with login/signup form.",
+      "form": "Classy typography. Inputs use the 2px border style. Include 'Continue with Google' button outlined, and main CTA solid Coral with solid shadow."
+    },
+    "dashboard": {
+      "layout": "Sidebar navigation (left) + Main content area. Sidebar has warm cream bg, main content area is white with 2px left-border separating them.",
+      "navigation_links": "Home, Content Library, Webinars, Channels, Analytics, Remix, Edit, Brand. Use playful bold icons (lucide-react, strokeWidth 2.5).",
+      "home": "Top stats row + 'Record a test one now' massive call-out banner (Mint background, cute doodles). Recent videos grid.",
+      "content_library": "Folders and Video Grid. Thumbnails have 2px borders, rounded-lg, hover states that lift up (-translate-y-1) and cast a solid shadow.",
+      "analytics": "Use Recharts. Line charts/heatmaps styled with the brand palette (Coral, Mint, Gold) and 2px thick strokes instead of standard thin lines."
+    },
+    "video_studio_player": {
+      "player_container": "Wistia-style custom player. Wrap standard HTML5 <video> in a rounded-2xl container with 2px border.",
+      "player_controls": "Large central Coral Play button overlay (pops up on hover). Custom bottom control bar with Mint colored progress fill. Add small vertical bar chart overlay above timeline to simulate 'engagement heatmap'.",
+      "studio_layout": "Split view. Left: Large video player. Right: Tabbed panel (Transcript / Remix / Brand).",
+      "transcript_editor": "Text-based editor. Clean, highly legible Nunito text. Active spoken word highlighted in Gold (#F4D068)."
+    }
+  },
+  "instructions_to_main_agent": [
+    "Import Google Fonts: 'Outfit' (wght: 400,700,900) for headings and 'Nunito' (wght: 400,600,800) for body in index.html.",
+    "Implement the 'Neo-Brutalist Soft' aesthetic exactly: use 2px solid #121124 borders on cards, buttons, inputs, and images. Combine this with the provided solid box-shadows (e.g. shadow-[4px_4px_0px_0px_rgba(18,17,36,1)]).",
+    "Use standard Tailwind CSS classes to apply these borders and shadows inline. Do not use generic Shadcn default styles; deeply customize them to fit this playful but classy theme.",
+    "Install 'lucide-react' for icons, and set strokeWidth={2.5} to match the roundness of the Nunito font.",
+    "CRITICAL: Include 'data-testid' attributes on all interactive elements (buttons, inputs, video controls, navigation links) as per the design rules.",
+    "For the Wistia-style video player, build custom controls using React state to manage playing, progress, and volume. The 'heatmap' can be mocked visually with a row of tiny bars over the progress track.",
+    "Ensure all URLs in the 'media' section are used exactly as provided. Do not use placeholder images."
+  ]
+}
