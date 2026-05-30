@@ -1,0 +1,45 @@
+{
+  "summary": "Iteration 2 backend testing complete. 25/25 pytest tests passing. All new endpoints (upload+storage, segment tracking + heatmap aggregation, transcript GET/POST, public file serving) verified end-to-end against the real Emergent object storage and real Whisper integration. Iteration 1 regression (auth + video CRUD + analytics) still 100% green.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "GET /api/files/{path}", "issue": "When a missing path is requested, backend returns 502 (raised by requests.HTTPError chain) instead of a clean 404. Test accepts (404,500,502) but ideally should map upstream 404 -> 404. Minor — does not affect user flow."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "(Optional, minor) In server.py serve_file, when upstream storage returns 404 ensure HTTPException(404) is raised (currently the requests.HTTPError flow may yield 502 in some cases).",
+    "(Carryover from iter 1) Add data-testid='record-create-button' to RecordModal CTA so frontend E2E can submit reliably.",
+    "(Carryover from iter 1) Decide logout redirect target (currently /login, spec said landing /)."
+  ],
+  "critical_code_review_comments": [
+    "transcribe_video correctly transitions transcript_status: pending -> ready/error and never leaves it stuck. Verified live with a fake webm (Whisper rejects format -> status becomes 'error' with truncated transcript_error). Good.",
+    "Storage initialization is lazy + auto-refreshes on 403 (storage_put/storage_get retry once after re-init). Confirmed Storage initialized on real Emergent endpoint.",
+    "upload_video reads entire file into memory (await file.read()) — fine for short recordings (<25MB Whisper cap) but consider streaming for larger files later. Also no max-size guard before reading.",
+    "/api/videos/{id}/segment is anonymous (intentional) and validates segment_index range (0..10000). Good.",
+    "Heatmap aggregation pipeline groups by segment_index and computes intensity = (watches + rewatches*2)/max_count — matches spec. Verified math (2 watches + 1 rewatch -> intensity 1.0 when max).",
+    "delete_video also deletes transcripts and segment_events — good cascade cleanup.",
+    "serve_file returns Cache-Control: public, max-age=3600 and proper media_type — allows <video src> to work. Good.",
+    "trigger_transcribe correctly 400s when storage_path missing and 200s + sets status=pending otherwise.",
+    "Transcript endpoint is per-user (404 for other users) — verified.",
+    "Minor: serve_file error mapping — requests.HTTPError handling could be tightened to map upstream 404 cleanly (currently can surface as 502 if requests raises before response status check)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/backend_test.py"
+  ],
+  "success_rate": {"backend": "100% (25/25)", "frontend": "not tested (skipped per request)"},
+  "test_credentials": "Dynamically generated TEST_<uuid>@looma.app users each run. Bearer token from /auth/register used for protected endpoints.",
+  "seed_data_creation": "Per-run: 2 TEST_ users, 1 TEST_video (deleted at end), 1 TEST_upload video left in DB with an uploaded ~8KB webm in Emergent object storage at looma/uploads/<user>/<uuid>.webm; 4 segment_events inserted for the TEST_video before deletion (cascaded out by delete_video).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend test file at /app/backend/tests/backend_test.py covers ALL endpoints incl. new iter-2 (upload, files, segment, heatmap, transcript GET, transcribe trigger). Whisper run with random webm bytes correctly returns transcript_status='error' (Whisper rejects invalid format — verified in backend.err.log). For a real-text transcript verification, upload a valid small mp3/webm clip via the same /api/videos/upload endpoint. For frontend testing, focus on Studio polling UI, VideoPlayer heatmap fetch, and RecordModal MediaRecorder flow (still needs data-testid on the submit CTA).",
+  "rca of the issue": "No critical bugs found this iteration. The only minor item: when serving a non-existent storage path, the error response code can be 502 instead of 404 because requests.HTTPError handling in serve_file may not always have e.response (depends on upstream behavior). Mitigation: in serve_file, wrap storage_get and explicitly catch requests.HTTPError with r.response and map sc == 404 -> HTTPException(404), else 502."
+}
