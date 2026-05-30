@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "@/context/AuthContext";
 import { Link } from "react-router-dom";
 import axios from "axios";
@@ -14,10 +14,18 @@ export default function DashHome() {
   const [showRec, setShowRec] = useState(false);
   const nav = useNavigate();
 
-  useEffect(() => {
+  const loadVideos = useCallback(() => {
     axios.get(`${API}/videos`, { headers: authHeader() }).then(r=>setVideos(r.data)).catch(()=>{});
+  }, [API, authHeader]);
+
+  const loadStats = useCallback(() => {
     axios.get(`${API}/analytics/overview`, { headers: authHeader() }).then(r=>setStats(r.data)).catch(()=>{});
   }, [API, authHeader]);
+
+  useEffect(() => {
+    loadVideos();
+    loadStats();
+  }, [loadVideos, loadStats]);
 
   return (
     <div className="p-8 md:p-10 max-w-7xl">

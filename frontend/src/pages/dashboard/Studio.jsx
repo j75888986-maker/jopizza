@@ -132,7 +132,7 @@ export default function Studio() {
                 {transcript?.status === "ready" && transcript.segments?.length > 0 && (
                   <>
                     {transcript.segments.map((l, i) => (
-                      <button key={i} onClick={()=>{
+                      <button key={`seg-${l.start}-${i}`} onClick={()=>{
                         const el = document.querySelector("[data-testid='video-player'] video");
                         if (el) el.currentTime = l.start;
                       }} className="flex gap-3 px-2 py-2 rounded-lg hover:bg-gold/30 cursor-pointer text-left w-full">
@@ -152,7 +152,7 @@ export default function Studio() {
               <div className="space-y-3">
                 <p className="text-sm text-ink/70 mb-2">Suggested clips for social:</p>
                 {(transcript?.segments?.slice(0, 4) || []).map((s, i) => (
-                  <div key={i} className="nb-border rounded-xl p-3 bg-mint">
+                  <div key={`clip-${s.start}-${i}`} className="nb-border rounded-xl p-3 bg-mint">
                     <div className="font-heading text-sm">{s.text.slice(0, 40)}…</div>
                     <div className="text-xs text-ink/70 mb-2">{Math.floor(s.start)}s – {Math.floor(s.end)}s</div>
                     <button className="nb-btn text-xs py-1.5 px-3">Export clip</button>

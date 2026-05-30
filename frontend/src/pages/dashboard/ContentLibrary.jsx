@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "@/context/AuthContext";
 import axios from "axios";
 import { Link } from "react-router-dom";
@@ -13,8 +13,8 @@ export default function ContentLibrary() {
   const [folder, setFolder] = useState("All");
   const [showRec, setShowRec] = useState(false);
 
-  const load = () => axios.get(`${API}/videos`, { headers: authHeader() }).then(r=>setVideos(r.data));
-  useEffect(() => { load(); }, []); // eslint-disable-line
+  const load = useCallback(() => axios.get(`${API}/videos`, { headers: authHeader() }).then(r=>setVideos(r.data)), [API, authHeader]);
+  useEffect(() => { load(); }, [load]);
 
   const folders = ["All", ...new Set(videos.map(v => v.folder || "All Videos"))];
   const filtered = videos.filter(v =>

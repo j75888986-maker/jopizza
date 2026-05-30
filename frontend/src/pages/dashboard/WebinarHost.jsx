@@ -35,7 +35,7 @@ export default function WebinarHost() {
 
   const stopAll = () => {
     if (recorderRef.current && recorderRef.current.state !== "inactive") {
-      try { recorderRef.current.stop(); } catch {}
+      try { recorderRef.current.stop(); } catch (e) { console.debug("recorder already stopped", e); }
     }
     composeStop.current = true;
     [streamRef.current, screenStreamRef.current, camStreamRef.current].forEach(s => s?.getTracks().forEach(t => t.stop()));
@@ -110,7 +110,7 @@ export default function WebinarHost() {
       if (previewRef.current) {
         previewRef.current.srcObject = stream;
         previewRef.current.muted = true;
-        await previewRef.current.play().catch(()=>{});
+        await previewRef.current.play().catch((e) => console.debug("autoplay blocked", e));
       }
       const mime = MediaRecorder.isTypeSupported("video/webm;codecs=vp8,opus") ? "video/webm;codecs=vp8,opus" : "video/webm";
       seqRef.current = 0;
@@ -129,7 +129,7 @@ export default function WebinarHost() {
         };
         rec.start();
         recorderRef.current = rec;
-        setTimeout(() => { if (rec.state !== "inactive") { try { rec.stop(); } catch {} } }, CHUNK_DURATION_MS);
+        setTimeout(() => { if (rec.state !== "inactive") { try { rec.stop(); } catch (e) { console.debug("rec stop noop", e); } } }, CHUNK_DURATION_MS);
       };
 
       setW(prev => prev ? { ...prev, status: "live" } : prev);

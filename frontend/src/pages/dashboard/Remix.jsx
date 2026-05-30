@@ -31,8 +31,8 @@ export default function Remix() {
 
       <h3 className="font-heading text-2xl mb-4">Suggested clips from "Spring Webinar"</h3>
       <div className="grid md:grid-cols-2 gap-5">
-        {clips.map((c, i) => (
-          <div key={i} className="nb-card flex gap-4 hover:-translate-y-1 transition">
+        {clips.map((c) => (
+          <div key={c.title} className="nb-card flex gap-4 hover:-translate-y-1 transition">
             <div className="w-24 h-32 rounded-xl nb-border bg-ink shrink-0 flex items-center justify-center text-white">
               <Scissors size={24}/>
             </div>

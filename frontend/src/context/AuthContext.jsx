@@ -2,65 +2,70 @@ import { createContext, useContext, useEffect, useState, useCallback } from "rea
 import axios from "axios";
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
+
+// Authenticated requests send the httpOnly cookie automatically
+axios.defaults.withCredentials = true;
+
 const AuthContext = createContext(null);
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
-  const [token, setToken] = useState(() => localStorage.getItem("looma_token"));
   const [loading, setLoading] = useState(true);
 
-  const authHeader = useCallback(() => token ? { Authorization: `Bearer ${token}` } : {}, [token]);
+  const refresh = useCallback(async () => {
+    try {
+      const r = await axios.get(`${API}/auth/me`);
+      setUser(r.data);
+      return r.data;
+    } catch {
+      setUser(null);
+      return null;
+    }
+  }, []);
 
   useEffect(() => {
     let active = true;
     (async () => {
-      if (!token) { setLoading(false); return; }
-      try {
-        const r = await axios.get(`${API}/auth/me`, { headers: { Authorization: `Bearer ${token}` } });
-        if (active) setUser(r.data);
-      } catch {
-        localStorage.removeItem("looma_token");
-        if (active) { setUser(null); setToken(null); }
-      } finally { if (active) setLoading(false); }
+      await refresh();
+      if (active) setLoading(false);
     })();
     return () => { active = false; };
-  }, [token]);
+  }, [refresh]);
 
-  const persist = (t, u) => {
-    localStorage.setItem("looma_token", t);
-    setToken(t); setUser(u);
-  };
-
-  const login = async (email, password) => {
+  const login = useCallback(async (email, password) => {
     const r = await axios.post(`${API}/auth/login`, { email, password });
-    persist(r.data.access_token, r.data.user);
+    setUser(r.data.user);
     return r.data.user;
-  };
+  }, []);
 
-  const register = async (email, password, name) => {
+  const register = useCallback(async (email, password, name) => {
     const r = await axios.post(`${API}/auth/register`, { email, password, name });
-    persist(r.data.access_token, r.data.user);
+    setUser(r.data.user);
     return r.data.user;
-  };
+  }, []);
 
-  const loginWithGoogleSession = async (sessionId) => {
+  const loginWithGoogleSession = useCallback(async (sessionId) => {
     const r = await axios.post(`${API}/auth/google/session`, {}, { headers: { "X-Session-ID": sessionId } });
-    persist(r.data.access_token, r.data.user);
+    setUser(r.data.user);
     return r.data.user;
-  };
+  }, []);
 
-  const startGoogleLogin = () => {
+  const startGoogleLogin = useCallback(() => {
     const redirect = `${window.location.origin}/auth/callback`;
     window.location.href = `https://auth.emergentagent.com/?redirect=${encodeURIComponent(redirect)}`;
-  };
+  }, []);
 
-  const logout = () => {
-    localStorage.removeItem("looma_token");
-    setToken(null); setUser(null);
-  };
+  const logout = useCallback(async () => {
+    try { await axios.post(`${API}/auth/logout`); } catch (e) { console.warn("logout request failed", e); }
+    setUser(null);
+  }, []);
+
+  // Auth header kept for backward compat with callers that explicitly pass it;
+  // cookie is the primary auth mechanism.
+  const authHeader = useCallback(() => ({}), []);
 
   return (
-    <AuthContext.Provider value={{ user, token, loading, login, register, logout, loginWithGoogleSession, startGoogleLogin, authHeader, API }}>
+    <AuthContext.Provider value={{ user, loading, login, register, logout, loginWithGoogleSession, startGoogleLogin, authHeader, refresh, API }}>
       {children}
     </AuthContext.Provider>
   );

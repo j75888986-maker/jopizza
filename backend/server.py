@@ -137,19 +137,40 @@ def create_token(user_id: str) -> str:
         "exp": datetime.now(timezone.utc) + timedelta(days=7),
         "iat": datetime.now(timezone.utc)}, JWT_SECRET, algorithm=JWT_ALG)
 
+AUTH_COOKIE = "looma_session"
+
+def set_auth_cookie(response: Response, token: str) -> None:
+    response.set_cookie(
+        key=AUTH_COOKIE, value=token,
+        max_age=7 * 24 * 3600, httponly=True,
+        secure=True, samesite="lax", path="/",
+    )
+
+def clear_auth_cookie(response: Response) -> None:
+    response.delete_cookie(key=AUTH_COOKIE, path="/")
+
 def user_to_out(u: dict) -> UserOut:
     return UserOut(id=u["id"], email=u["email"], name=u.get("name"),
         picture=u.get("picture"), provider=u.get("provider", "local"))
 
-async def get_current_user(credentials: Optional[HTTPAuthorizationCredentials] = Depends(security)) -> dict:
-    if not credentials: raise HTTPException(401, "Not authenticated")
+async def get_current_user(
+    request: Request,
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
+) -> dict:
+    # Prefer httpOnly cookie; fall back to Authorization header (for embeds / API clients)
+    token: Optional[str] = request.cookies.get(AUTH_COOKIE)
+    if not token and credentials:
+        token = credentials.credentials
+    if not token:
+        raise HTTPException(401, "Not authenticated")
     try:
-        payload = jwt.decode(credentials.credentials, JWT_SECRET, algorithms=[JWT_ALG])
+        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALG])
         user_id = payload.get("sub")
     except jwt.PyJWTError:
         raise HTTPException(401, "Invalid token")
     u = await db.users.find_one({"id": user_id}, {"_id": 0})
-    if not u: raise HTTPException(401, "User not found")
+    if not u:
+        raise HTTPException(401, "User not found")
     return u
 
 
@@ -206,7 +227,7 @@ async def root():
     return {"message": "Looma API up", "version": "2.0"}
 
 @api_router.post("/auth/register", response_model=TokenOut)
-async def register(req: RegisterReq):
+async def register(req: RegisterReq, response: Response):
     if await db.users.find_one({"email": req.email.lower()}):
         raise HTTPException(400, "Email already registered")
     user = {"id": str(uuid.uuid4()), "email": req.email.lower(),
@@ -214,21 +235,30 @@ async def register(req: RegisterReq):
         "password_hash": hash_pw(req.password), "provider": "local", "picture": None,
         "created_at": datetime.now(timezone.utc).isoformat()}
     await db.users.insert_one(user)
-    return TokenOut(access_token=create_token(user["id"]), user=user_to_out(user))
+    tok = create_token(user["id"])
+    set_auth_cookie(response, tok)
+    return TokenOut(access_token=tok, user=user_to_out(user))
 
 @api_router.post("/auth/login", response_model=TokenOut)
-async def login(req: LoginReq):
+async def login(req: LoginReq, response: Response):
     u = await db.users.find_one({"email": req.email.lower()}, {"_id": 0})
     if not u or not u.get("password_hash") or not verify_pw(req.password, u["password_hash"]):
         raise HTTPException(401, "Invalid email or password")
-    return TokenOut(access_token=create_token(u["id"]), user=user_to_out(u))
+    tok = create_token(u["id"])
+    set_auth_cookie(response, tok)
+    return TokenOut(access_token=tok, user=user_to_out(u))
+
+@api_router.post("/auth/logout")
+async def logout(response: Response):
+    clear_auth_cookie(response)
+    return {"ok": True}
 
 @api_router.get("/auth/me", response_model=UserOut)
 async def me(user=Depends(get_current_user)):
     return user_to_out(user)
 
 @api_router.post("/auth/google/session", response_model=TokenOut)
-async def google_session(request: Request):
+async def google_session(request: Request, response: Response):
     session_id = request.headers.get("X-Session-ID")
     if not session_id: raise HTTPException(400, "Missing X-Session-ID header")
     async with httpx.AsyncClient(timeout=10) as cx:
@@ -256,7 +286,9 @@ async def google_session(request: Request):
             "provider": u.get("provider") or "google"}})
         u["picture"] = data.get("picture") or u.get("picture")
         u["name"] = data.get("name") or u.get("name")
-    return TokenOut(access_token=create_token(u["id"]), user=user_to_out(u))
+    tok = create_token(u["id"])
+    set_auth_cookie(response, tok)
+    return TokenOut(access_token=tok, user=user_to_out(u))
 
 
 # ============ VIDEOS ============
@@ -311,7 +343,6 @@ async def upload_video(
     path = f"{APP_NAME}/uploads/{user['id']}/{uuid.uuid4()}.{ext}"
     content_type = file.content_type or ("video/webm" if ext == "webm" else "video/mp4")
     result = await asyncio.get_event_loop().run_in_executor(None, storage_put, path, data, content_type)
-    base = os.environ.get("PUBLIC_BACKEND_URL", "")  # optional
     file_url = f"/api/files/{result['path']}"
     v = {"id": str(uuid.uuid4()), "user_id": user["id"], "title": title,
         "description": description or "", "url": file_url, "thumbnail": "",
@@ -328,12 +359,16 @@ async def upload_video(
 @api_router.get("/files/{path:path}")
 async def serve_file(path: str):
     """Public endpoint to serve uploaded video files (used as <video src>)."""
+    data: Optional[bytes] = None
+    ctype: str = "application/octet-stream"
     try:
         data, ctype = await asyncio.get_event_loop().run_in_executor(None, storage_get, path)
     except requests.HTTPError as e:
         sc = e.response.status_code if e.response is not None else 502
         raise HTTPException(404 if sc == 404 else 502, "File not found" if sc == 404 else "Storage error")
     except Exception:
+        raise HTTPException(502, "Storage error")
+    if data is None:
         raise HTTPException(502, "Storage error")
     return Response(content=data, media_type=ctype, headers={"Cache-Control": "public, max-age=3600"})
 

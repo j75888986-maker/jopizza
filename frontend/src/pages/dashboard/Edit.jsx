@@ -26,8 +26,8 @@ export default function Edit() {
           <div className="nb-card">
             <h3 className="font-heading text-xl mb-3 flex items-center gap-2"><Type size={20}/> Transcript</h3>
             <div className="space-y-2 max-h-80 overflow-y-auto scrollbar-thin">
-              {transcript.map((line, i) => (
-                <div key={i} className="flex gap-3 px-3 py-2 rounded-lg hover:bg-gold/30 cursor-text">
+              {transcript.map((line) => (
+                <div key={`${line.t}-${line.text.slice(0, 12)}`} className="flex gap-3 px-3 py-2 rounded-lg hover:bg-gold/30 cursor-text">
                   <span className="font-bold text-coral text-sm w-12 shrink-0">{line.t}</span>
                   <p className="text-ink/90 leading-relaxed">{line.text}</p>
                 </div>
