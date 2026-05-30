@@ -12,7 +12,7 @@ export default function Studio() {
   const [video, setVideo] = useState(null);
   const [transcript, setTranscript] = useState(null); // {status, text, segments}
   const [tab, setTab] = useState("transcript");
-  const [color] = useState("#FF6B6B");
+  const [brand, setBrand] = useState({ color: "#FF6B6B", logo_text: "Looma" });
   const playerSeekRef = useRef(null);
   const nav = useNavigate();
   const BACKEND = process.env.REACT_APP_BACKEND_URL;
@@ -23,6 +23,8 @@ export default function Studio() {
       .catch(() => { toast.error("Video not found"); nav("/app/library"); });
     axios.get(`${API}/videos/${id}/transcript`, { headers: authHeader() })
       .then(r => setTranscript(r.data)).catch(()=>{});
+    axios.get(`${API}/brand`, { headers: authHeader() })
+      .then(r => setBrand(b => ({ ...b, ...r.data }))).catch(()=>{});
   }, [id, API, authHeader, nav]);
 
   useEffect(() => { load(); }, [load]);
@@ -49,7 +51,9 @@ export default function Studio() {
 
   const playableSrc = video.url?.startsWith("/api/") ? `${BACKEND}${video.url}` : video.url;
   const embedCode = `<iframe src="${window.location.origin}/embed/${video.id}" width="640" height="360" frameborder="0" allowfullscreen></iframe>`;
+  const shareUrl = `${window.location.origin}/v/${video.id}`;
   const copyEmbed = () => { navigator.clipboard.writeText(embedCode); toast.success("Embed code copied!"); };
+  const copyShare = () => { navigator.clipboard.writeText(shareUrl); toast.success("Share link copied!"); };
 
   const tabs = [
     { id: "transcript", icon: FileText, label: "Transcript" },
@@ -88,9 +92,9 @@ export default function Studio() {
           <VideoPlayer
             src={playableSrc}
             videoId={video.id}
-            brandColor={color}
-            logoText="Looma"
-            thumbnail={video.thumbnail}
+            brandColor={brand.color}
+            logoText={brand.logo_text || "Looma"}
+            thumbnail={video.thumbnail || brand.default_thumbnail}
           />
         </div>
         <div className="nb-card p-0 overflow-hidden">
@@ -174,9 +178,14 @@ export default function Studio() {
             {tab === "share" && (
               <div className="space-y-3">
                 <div>
+                  <label className="font-heading text-xs mb-1.5 block">Share link</label>
+                  <input readOnly className="nb-input text-xs" value={shareUrl}/>
+                  <button onClick={copyShare} className="nb-btn nb-btn-mint w-full mt-2 text-sm" data-testid="studio-copy-share"><Copy size={14}/> Copy share link</button>
+                </div>
+                <div>
                   <label className="font-heading text-xs mb-1.5 block">Embed code</label>
                   <textarea readOnly className="nb-input font-mono text-xs h-24 resize-none" value={embedCode}/>
-                  <button onClick={copyEmbed} className="nb-btn w-full mt-2 text-sm" data-testid="studio-copy-embed"><Copy size={14}/> Copy</button>
+                  <button onClick={copyEmbed} className="nb-btn w-full mt-2 text-sm" data-testid="studio-copy-embed"><Copy size={14}/> Copy embed</button>
                 </div>
                 <div>
                   <label className="font-heading text-xs mb-1.5 block">Direct video URL</label>

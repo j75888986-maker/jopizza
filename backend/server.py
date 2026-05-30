@@ -456,6 +456,214 @@ async def create_status(input: StatusCheckCreate):
     return doc
 
 
+# ============ BRAND ============
+class BrandUpdate(BaseModel):
+    color: Optional[str] = None
+    logo_text: Optional[str] = None
+    default_thumbnail: Optional[str] = None
+    autoplay: Optional[bool] = None
+
+def brand_defaults():
+    return {"color": "#FF6B6B", "logo_text": "Looma", "default_thumbnail": "", "autoplay": False}
+
+@api_router.get("/brand")
+async def get_brand(user=Depends(get_current_user)):
+    b = await db.brands.find_one({"user_id": user["id"]}, {"_id": 0, "user_id": 0}) or {}
+    merged = {**brand_defaults(), **b}
+    return merged
+
+@api_router.put("/brand")
+async def update_brand(body: BrandUpdate, user=Depends(get_current_user)):
+    updates = {k: v for k, v in body.model_dump().items() if v is not None}
+    await db.brands.update_one({"user_id": user["id"]},
+        {"$set": {**updates, "user_id": user["id"], "updated_at": datetime.now(timezone.utc).isoformat()}},
+        upsert=True)
+    b = await db.brands.find_one({"user_id": user["id"]}, {"_id": 0, "user_id": 0}) or {}
+    return {**brand_defaults(), **b}
+
+
+# ============ PUBLIC VIDEO (for /embed/:id and /v/:id) ============
+@api_router.get("/public/videos/{video_id}")
+async def public_video(video_id: str):
+    """Anonymous endpoint — returns video + owner brand for embeddable / shareable players."""
+    v = await db.videos.find_one({"id": video_id}, {"_id": 0})
+    if not v: raise HTTPException(404, "Video not found")
+    b = await db.brands.find_one({"user_id": v["user_id"]}, {"_id": 0, "user_id": 0}) or {}
+    brand = {**brand_defaults(), **b}
+    return {
+        "id": v["id"], "title": v.get("title", ""),
+        "description": v.get("description", ""),
+        "url": v.get("url", ""), "thumbnail": v.get("thumbnail", ""),
+        "duration": v.get("duration", 0),
+        "views": v.get("views", 0),
+        "brand": brand,
+    }
+
+
+# ============ WEBINARS ============
+class WebinarCreate(BaseModel):
+    title: str
+    description: Optional[str] = ""
+    scheduled_at: Optional[str] = None  # ISO string
+
+class WebinarUpdate(BaseModel):
+    title: Optional[str] = None
+    description: Optional[str] = None
+    scheduled_at: Optional[str] = None
+    status: Optional[str] = None  # scheduled|live|ended
+
+class WebinarRegister(BaseModel):
+    email: EmailStr
+    name: Optional[str] = None
+
+def webinar_to_out(w: dict, host: Optional[dict] = None) -> dict:
+    return {
+        "id": w["id"],
+        "host_id": w["host_id"],
+        "host_name": (host or {}).get("name") or "",
+        "title": w.get("title", ""),
+        "description": w.get("description", ""),
+        "scheduled_at": w.get("scheduled_at"),
+        "status": w.get("status", "scheduled"),
+        "registrations_count": w.get("registrations_count", 0),
+        "recording_chunks": w.get("recording_chunks", []),
+        "recording_video_id": w.get("recording_video_id"),
+        "created_at": w.get("created_at"),
+    }
+
+@api_router.get("/webinars")
+async def list_webinars(user=Depends(get_current_user)):
+    rows = await db.webinars.find({"host_id": user["id"]}, {"_id": 0}).sort("created_at", -1).to_list(200)
+    return [webinar_to_out(r, user) for r in rows]
+
+@api_router.post("/webinars")
+async def create_webinar(body: WebinarCreate, user=Depends(get_current_user)):
+    w = {
+        "id": str(uuid.uuid4()), "host_id": user["id"],
+        "title": body.title, "description": body.description or "",
+        "scheduled_at": body.scheduled_at,
+        "status": "scheduled", "registrations_count": 0,
+        "recording_chunks": [], "recording_video_id": None,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.webinars.insert_one(w)
+    return webinar_to_out(w, user)
+
+@api_router.get("/webinars/{wid}")
+async def get_webinar(wid: str, user=Depends(get_current_user)):
+    w = await db.webinars.find_one({"id": wid, "host_id": user["id"]}, {"_id": 0})
+    if not w: raise HTTPException(404, "Webinar not found")
+    return webinar_to_out(w, user)
+
+@api_router.patch("/webinars/{wid}")
+async def update_webinar(wid: str, body: WebinarUpdate, user=Depends(get_current_user)):
+    updates = {k: v for k, v in body.model_dump().items() if v is not None}
+    if updates: await db.webinars.update_one({"id": wid, "host_id": user["id"]}, {"$set": updates})
+    w = await db.webinars.find_one({"id": wid, "host_id": user["id"]}, {"_id": 0})
+    if not w: raise HTTPException(404, "Webinar not found")
+    return webinar_to_out(w, user)
+
+@api_router.delete("/webinars/{wid}")
+async def delete_webinar(wid: str, user=Depends(get_current_user)):
+    r = await db.webinars.delete_one({"id": wid, "host_id": user["id"]})
+    await db.webinar_registrations.delete_many({"webinar_id": wid})
+    if r.deleted_count == 0: raise HTTPException(404, "Webinar not found")
+    return {"ok": True}
+
+# Public webinar info (for registration page)
+@api_router.get("/public/webinars/{wid}")
+async def public_webinar(wid: str):
+    w = await db.webinars.find_one({"id": wid}, {"_id": 0})
+    if not w: raise HTTPException(404, "Webinar not found")
+    host = await db.users.find_one({"id": w["host_id"]}, {"_id": 0})
+    brand = await db.brands.find_one({"user_id": w["host_id"]}, {"_id": 0, "user_id": 0}) or {}
+    return {
+        "id": w["id"], "title": w.get("title", ""), "description": w.get("description", ""),
+        "scheduled_at": w.get("scheduled_at"), "status": w.get("status"),
+        "host_name": (host or {}).get("name", ""),
+        "brand": {**brand_defaults(), **brand},
+        "recording_chunks": w.get("recording_chunks", []) if w.get("status") == "live" else [],
+        "recording_video_id": w.get("recording_video_id") if w.get("status") == "ended" else None,
+    }
+
+@api_router.post("/public/webinars/{wid}/register")
+async def register_for_webinar(wid: str, body: WebinarRegister):
+    w = await db.webinars.find_one({"id": wid}, {"_id": 0})
+    if not w: raise HTTPException(404, "Webinar not found")
+    existing = await db.webinar_registrations.find_one({"webinar_id": wid, "email": body.email.lower()})
+    if existing: return {"ok": True, "already_registered": True}
+    await db.webinar_registrations.insert_one({
+        "id": str(uuid.uuid4()), "webinar_id": wid,
+        "email": body.email.lower(), "name": body.name or "",
+        "registered_at": datetime.now(timezone.utc).isoformat(),
+    })
+    await db.webinars.update_one({"id": wid}, {"$inc": {"registrations_count": 1}})
+    return {"ok": True, "already_registered": False}
+
+# Live chunk upload (host)
+@api_router.post("/webinars/{wid}/chunk")
+async def upload_webinar_chunk(
+    wid: str,
+    background: BackgroundTasks,
+    file: UploadFile = File(...),
+    seq: int = Form(...),
+    user=Depends(get_current_user),
+):
+    w = await db.webinars.find_one({"id": wid, "host_id": user["id"]}, {"_id": 0})
+    if not w: raise HTTPException(404, "Webinar not found")
+    data = await file.read()
+    path = f"{APP_NAME}/webinars/{wid}/chunk_{seq:05d}.webm"
+    await asyncio.get_event_loop().run_in_executor(None, storage_put, path, data, "video/webm")
+    chunk_url = f"/api/files/{path}"
+    await db.webinars.update_one({"id": wid}, {
+        "$set": {"status": "live"},
+        "$addToSet": {"recording_chunks": {"seq": seq, "url": chunk_url, "path": path}},
+    })
+    return {"ok": True, "url": chunk_url, "seq": seq}
+
+# End live: optionally consolidate chunks into a single video record
+@api_router.post("/webinars/{wid}/end")
+async def end_webinar(wid: str, user=Depends(get_current_user)):
+    w = await db.webinars.find_one({"id": wid, "host_id": user["id"]}, {"_id": 0})
+    if not w: raise HTTPException(404, "Webinar not found")
+    # Persist recording as a regular video using the first chunk URL (full recording = all chunks concatenated client-side)
+    chunks = sorted(w.get("recording_chunks", []), key=lambda c: c.get("seq", 0))
+    video_id = None
+    if chunks:
+        v = {"id": str(uuid.uuid4()), "user_id": user["id"],
+             "title": f"Recording: {w.get('title','Webinar')}",
+             "description": w.get("description", ""),
+             "url": chunks[0]["url"],
+             "thumbnail": "", "duration": 0,
+             "folder": "Webinar Recordings",
+             "views": 0, "plays": 0, "avg_engagement": 0.0,
+             "storage_path": chunks[0]["path"],
+             "transcript_status": "none",
+             "created_at": datetime.now(timezone.utc).isoformat()}
+        await db.videos.insert_one(v)
+        video_id = v["id"]
+    await db.webinars.update_one({"id": wid}, {"$set": {"status": "ended", "recording_video_id": video_id}})
+    w = await db.webinars.find_one({"id": wid}, {"_id": 0})
+    return webinar_to_out(w, user)
+
+
+# ============ EXPORT (DB dump as JSON for the user) ============
+@api_router.get("/admin/export")
+async def export_my_data(user=Depends(get_current_user)):
+    """Export everything the current user owns as JSON (best-effort DB 'download')."""
+    out = {"exported_at": datetime.now(timezone.utc).isoformat(),
+           "user": {k: v for k, v in user.items() if k != "password_hash"}}
+    out["videos"] = await db.videos.find({"user_id": user["id"]}, {"_id": 0}).to_list(1000)
+    video_ids = [v["id"] for v in out["videos"]]
+    out["transcripts"] = await db.transcripts.find({"video_id": {"$in": video_ids}}, {"_id": 0}).to_list(2000)
+    out["segment_events"] = await db.segment_events.find({"video_id": {"$in": video_ids}}, {"_id": 0}).to_list(20000)
+    out["webinars"] = await db.webinars.find({"host_id": user["id"]}, {"_id": 0}).to_list(500)
+    webinar_ids = [w["id"] for w in out["webinars"]]
+    out["webinar_registrations"] = await db.webinar_registrations.find({"webinar_id": {"$in": webinar_ids}}, {"_id": 0}).to_list(5000)
+    out["brand"] = await db.brands.find_one({"user_id": user["id"]}, {"_id": 0}) or {}
+    return out
+
+
 app.include_router(api_router)
 
 app.add_middleware(

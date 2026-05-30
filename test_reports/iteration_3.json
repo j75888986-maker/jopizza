@@ -1,0 +1,49 @@
+{
+  "summary": "Iteration 3 backend testing complete. 50/50 tests passing (25 new iter-3 + 25 iter-1+2 regression). All new endpoints verified end-to-end against the real Emergent object storage: brand defaults+merge persistence, public video (with OWNER brand), full webinar CRUD, owner isolation, public webinar (chunks hidden unless live, host_brand included), anonymous registration with email dedupe, multipart chunk upload (status flips to live), end-of-webinar creates Videos doc in 'Webinar Recordings' folder with recording_video_id, /admin/export returns all 7 required keys (and never leaks password_hash), and delete-webinar cleans webinar_registrations cascade.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "GET /api/public/webinars/{wid}", "issue": "When status='ended', recording_chunks is hidden (returned empty) per implementation. Spec described 'hides recording_chunks unless status==live' which matches behavior, BUT a public viewer that joins late and wants to re-watch will see chunks=[] and rely solely on recording_video_id which is then served via /api/videos/{id} (auth-required) — not via /api/public/videos/{id}. Public viewers cannot directly play the ended recording without the owner re-sharing the /v/:id link. Consider exposing the recording via /api/public/videos/{recording_video_id} link or include the public URL in the public webinar response."},
+      {"endpoint": "POST /api/webinars/{wid}/chunk", "issue": "$addToSet uses the entire chunk dict as the set element — if the same seq is uploaded twice with different bytes, both entries would still be added because the dict differs (random uuid in path? no, path is deterministic by seq). Acceptable for now, but $addToSet on dicts is brittle; safer to use $push with explicit dedupe-by-seq or upsert per seq."},
+      {"endpoint": "GET /api/files/{path}", "issue": "Carryover from iter-2: upstream 404 from storage can surface as 502 in some paths. Not a regression."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter3.py",
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/pytest_iter3_results.xml",
+    "/app/test_reports/pytest/pytest_iter12_regression.xml"
+  ],
+  "action_items": [
+    "(Optional, low) Consider exposing ended webinar recording via a public route so /webinar/:id pages can play it without auth.",
+    "(Optional, low) Replace $addToSet on chunk dict with explicit per-seq upsert to avoid duplicate seq entries with different payloads.",
+    "(Carryover from iter-2) serve_file: map upstream 404 cleanly to 404 instead of occasional 502."
+  ],
+  "critical_code_review_comments": [
+    "Brand merge logic uses {**defaults, **stored} so partial PUTs correctly preserve previously stored fields and fall back to defaults — verified.",
+    "Public video endpoint correctly fetches brand by v['user_id'] (owner) — verified user_a's brand color #ABCDEF returned to anonymous viewer.",
+    "Webinar owner isolation enforced via {host_id: user_id} filter on get/patch/delete — verified user_b gets 404.",
+    "Anonymous registration dedupes by lower-cased email; second register returns already_registered=true without incrementing counter — verified.",
+    "Chunk upload accepts multipart 'file' + 'seq' form field, stores to looma/webinars/{wid}/chunk_{seq:05d}.webm, and atomically sets status='live' + addToSet chunks — verified.",
+    "End-of-webinar creates a Video doc with folder='Webinar Recordings', uses first chunk as url+storage_path. Sets recording_video_id on webinar. When no chunks were uploaded, recording_video_id stays null (per spec). Verified positive path.",
+    "Delete webinar cascade-deletes webinar_registrations — verified via export before/after.",
+    "/admin/export returns dict with all 7 required keys (user/videos/transcripts/segment_events/webinars/webinar_registrations/brand) and strips password_hash — verified.",
+    "Public webinar correctly hides recording_chunks unless status=='live' — verified state transitions scheduled→live→ended.",
+    "All existing iter-1 + iter-2 endpoints still working — 25/25 regression PASS."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter3.py (new)"
+  ],
+  "success_rate": {"backend": "100% (50/50 — 25 iter-3 + 25 iter-1+2 regression)", "frontend": "not tested (skipped per request)"},
+  "test_credentials": "Dynamically generated TEST_a_<uuid>@looma.app and TEST_b_<uuid>@looma.app users each run. Bearer tokens from /auth/register. Anonymous registrations use TEST_reg_*@viewer.app emails.",
+  "seed_data_creation": "Per-run: 2 TEST_ host users, 1 TEST_pub video (owned by user_a), 1 TEST_webinar (taken from scheduled → live → ended), 1 derived 'Recording: TEST_webinar_v2' video in 'Webinar Recordings' folder, 2 chunks at looma/webinars/<wid>/chunk_00000.webm and chunk_00001.webm in Emergent storage, 2 webinar_registrations on the live webinar, plus 1 TEST_cascade webinar+registration that is deleted within the run.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend tests split into two files: /app/backend/tests/backend_test.py (iter-1+2 regression, 25 tests) and /app/backend/tests/test_iter3.py (iter-3 features, 25 tests). Run both with `python -m pytest backend/tests/ -v`. Iter-3 test file uses module-scoped user_a/user_b fixtures and stashes shared webinar_id on the pytest module attribute. Chunk upload uses multipart with form field name 'seq' (integer) and 'file' (binary). End-of-webinar requires at least one chunk to populate recording_video_id (negative path not currently tested — could be added). All Emergent storage paths are live: looma/webinars/<wid>/chunk_<seq:05d>.webm and looma/uploads/<user>/<uuid>.webm.",
+  "rca of the issue": "No bugs found in iteration 3. Implementation matches spec on every tested branch."
+}
