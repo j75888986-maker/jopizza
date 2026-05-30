@@ -1,83 +1,28 @@
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import axios from "axios";
 import { Play, Pause, Volume2, VolumeX, Maximize, RotateCcw } from "lucide-react";
+import { useVideoPlayer, fmtTime } from "@/hooks/useVideoPlayer";
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 const BACKEND = process.env.REACT_APP_BACKEND_URL;
 
-/**
- * Public viewer page used for /v/:id (shareable) AND /embed/:id (iframe).
- * No auth required. Inlined custom player (Wistia-style) using owner brand.
- */
+/** Public viewer page used for /v/:id (shareable) AND /embed/:id (iframe). No auth required. */
 export default function PublicViewer({ embed = false }) {
   const { id } = useParams();
   const [data, setData] = useState(null);
   const [err, setErr] = useState(null);
-  const ref = useRef(null);
-  const [playing, setPlaying] = useState(false);
-  const [progress, setProgress] = useState(0);
-  const [duration, setDuration] = useState(0);
-  const [muted, setMuted] = useState(false);
-  const [hovered, setHovered] = useState(false);
-  const [tracked, setTracked] = useState(false);
-  const [heatmap, setHeatmap] = useState([]);
-  const sessionId = useRef(typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2));
-  const sent = useRef(new Set());
-  const lastSeg = useRef(-1);
 
   useEffect(() => {
-    axios.get(`${API}/public/videos/${id}`).then(r => setData(r.data)).catch(e => setErr(e?.response?.data?.detail || "Video not found"));
-    axios.get(`${API}/videos/${id}/heatmap`).then(r => setHeatmap(r.data.segments || [])).catch(()=>{});
+    axios.get(`${API}/public/videos/${id}`)
+      .then(r => setData(r.data))
+      .catch(e => setErr(e?.response?.data?.detail || "Video not found"));
   }, [id]);
 
-  const trackSeg = useCallback((seg, action) => {
-    if (seg < 0) return;
-    if (action === "watch" && sent.current.has(seg)) return;
-    if (action === "watch") sent.current.add(seg);
-    axios.post(`${API}/videos/${id}/segment`, { video_id: id, session_id: sessionId.current, segment_index: seg, action }).catch(()=>{});
-  }, [id]);
-
-  const onTime = () => {
-    if (!ref.current) return;
-    const t = ref.current.currentTime; const d = ref.current.duration || 1;
-    setProgress((t / d) * 100);
-    const seg = Math.floor(t / 5);
-    if (seg !== lastSeg.current) {
-      if (seg < lastSeg.current && sent.current.has(seg)) trackSeg(seg, "rewatch");
-      else if (!sent.current.has(seg)) trackSeg(seg, "watch");
-      if (lastSeg.current >= 0 && seg > lastSeg.current + 1) trackSeg(lastSeg.current + 1, "skip");
-      lastSeg.current = seg;
-    }
-  };
-
-  const toggle = () => {
-    if (!ref.current) return;
-    if (ref.current.paused) {
-      ref.current.play();
-      if (!tracked) { axios.post(`${API}/videos/${id}/view`).catch(()=>{}); setTracked(true); }
-    } else ref.current.pause();
-  };
-
-  useEffect(() => {
-    const v = ref.current; if (!v) return;
-    const p = () => setPlaying(true), pz = () => setPlaying(false);
-    v.addEventListener("play", p); v.addEventListener("pause", pz);
-    return () => { v.removeEventListener("play", p); v.removeEventListener("pause", pz); };
-  }, [data]);
-
-  const seek = (e) => {
-    if (!ref.current) return;
-    const rect = e.currentTarget.getBoundingClientRect();
-    const pct = (e.clientX - rect.left) / rect.width;
-    ref.current.currentTime = pct * (ref.current.duration || 0);
-  };
-
-  const fmt = (s) => {
-    if (!s || !isFinite(s)) return "0:00";
-    const m = Math.floor(s / 60); const sec = Math.floor(s % 60);
-    return `${m}:${sec.toString().padStart(2,"0")}`;
-  };
+  const {
+    ref, playing, progress, duration, muted, heatmap,
+    onLoadedMetadata, onTimeUpdate, toggle, seek, reset, toggleMute, requestFullscreen,
+  } = useVideoPlayer({ videoId: id });
 
   if (err) return (
     <div className="min-h-screen bg-cream flex items-center justify-center p-6">
@@ -96,21 +41,27 @@ export default function PublicViewer({ embed = false }) {
   const heatmapDisplay = Array.from({ length: bucket }, (_, i) => heatmap.find(h => h.index === i)?.intensity ?? 0.08);
 
   const player = (
-    <div className="relative w-full aspect-video bg-ink rounded-2xl nb-border nb-shadow-lg overflow-hidden group"
-         onMouseEnter={()=>setHovered(true)} onMouseLeave={()=>setHovered(false)} data-testid="public-player">
-      <video ref={ref} src={src} poster={data.thumbnail || undefined} className="w-full h-full object-contain bg-black"
-             onLoadedMetadata={()=>setDuration(ref.current?.duration||0)} onTimeUpdate={onTime} onClick={toggle} playsInline crossOrigin="anonymous"/>
+    <div className="relative w-full aspect-video bg-ink rounded-2xl nb-border nb-shadow-lg overflow-hidden group" data-testid="public-player">
+      <video ref={ref} src={src} poster={data.thumbnail || undefined}
+        className="w-full h-full object-contain bg-black"
+        onLoadedMetadata={onLoadedMetadata} onTimeUpdate={onTimeUpdate}
+        onClick={toggle} playsInline crossOrigin="anonymous"/>
       <div className="absolute top-4 right-4 bg-white/90 backdrop-blur px-3 py-1.5 rounded-full nb-border text-sm font-heading font-black flex items-center gap-1.5">
         <span className="w-2 h-2 rounded-full" style={{ background: brandColor }}/>{logoText}
       </div>
       {!playing && (
         <button onClick={toggle} aria-label="Play" data-testid="public-play"
           className="absolute inset-0 m-auto w-20 h-20 rounded-full nb-border text-white flex items-center justify-center shadow-[6px_6px_0_0_rgba(0,0,0,0.6)] transition-transform hover:scale-110"
-          style={{ background: brandColor }}><Play size={32} fill="white"/></button>
+          style={{ background: brandColor }}>
+          <Play size={32} fill="white"/>
+        </button>
       )}
-      <div className={`absolute bottom-0 left-0 right-0 p-3 transition-opacity ${hovered || !playing ? 'opacity-100' : 'opacity-0'} bg-gradient-to-t from-black/80 to-transparent`}>
+      <div className={`absolute bottom-0 left-0 right-0 p-3 transition-opacity opacity-0 group-hover:opacity-100 ${!playing ? 'opacity-100' : ''} bg-gradient-to-t from-black/80 to-transparent`}>
         <div className="flex items-end gap-[2px] h-5 mb-1 px-1">
-          {heatmapDisplay.map((h, i) => <div key={i} className="flex-1 rounded-sm" style={{ height: `${Math.max(h*100,8)}%`, background: `hsla(168,47%,72%,${0.35 + h*0.6})` }}/>)}
+          {heatmapDisplay.map((h, i) => (
+            <div key={`seg-${i}`} className="flex-1 rounded-sm"
+              style={{ height: `${Math.max(h*100,8)}%`, background: `hsla(168,47%,72%,${0.35 + h*0.6})` }}/>
+          ))}
         </div>
         <div className="relative h-3 bg-white/25 rounded-full cursor-pointer mb-2" onClick={seek}>
           <div className="absolute inset-y-0 left-0 rounded-full" style={{ width: `${progress}%`, background: brandColor }}/>
@@ -119,11 +70,11 @@ export default function PublicViewer({ embed = false }) {
         <div className="flex items-center justify-between text-white text-sm font-bold">
           <div className="flex items-center gap-2">
             <button onClick={toggle} className="p-2 rounded-full hover:bg-white/15">{playing ? <Pause size={18}/> : <Play size={18} fill="white"/>}</button>
-            <button onClick={()=>{ if(ref.current){ ref.current.currentTime = 0; } }} className="p-2 rounded-full hover:bg-white/15"><RotateCcw size={16}/></button>
-            <button onClick={()=>{ setMuted(m=>{ if(ref.current) ref.current.muted=!m; return !m; }); }} className="p-2 rounded-full hover:bg-white/15">{muted ? <VolumeX size={16}/> : <Volume2 size={16}/>}</button>
-            <span className="ml-2">{fmt((progress/100)*duration)} / {fmt(duration)}</span>
+            <button onClick={reset} className="p-2 rounded-full hover:bg-white/15"><RotateCcw size={16}/></button>
+            <button onClick={toggleMute} className="p-2 rounded-full hover:bg-white/15">{muted ? <VolumeX size={16}/> : <Volume2 size={16}/>}</button>
+            <span className="ml-2">{fmtTime((progress/100)*duration)} / {fmtTime(duration)}</span>
           </div>
-          <button onClick={()=>{ ref.current?.requestFullscreen?.(); }} className="p-2 rounded-full hover:bg-white/15"><Maximize size={16}/></button>
+          <button onClick={requestFullscreen} className="p-2 rounded-full hover:bg-white/15"><Maximize size={16}/></button>
         </div>
       </div>
     </div>

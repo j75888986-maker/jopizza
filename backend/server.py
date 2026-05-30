@@ -1,9 +1,11 @@
 from fastapi import FastAPI, APIRouter, HTTPException, Depends, Request, BackgroundTasks, UploadFile, File, Form, Header, Query, Response
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from fastapi.responses import JSONResponse
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
-import os, jwt, bcrypt, uuid, logging, httpx, requests, asyncio, tempfile, io
+import os, jwt, bcrypt, uuid, logging, httpx, requests, asyncio, tempfile, io, secrets
 from pathlib import Path
 from pydantic import BaseModel, Field, EmailStr
 from typing import List, Optional
@@ -138,6 +140,45 @@ def create_token(user_id: str) -> str:
         "iat": datetime.now(timezone.utc)}, JWT_SECRET, algorithm=JWT_ALG)
 
 AUTH_COOKIE = "looma_session"
+CSRF_COOKIE = "looma_csrf"
+
+# Paths exempted from CSRF check (public mutating endpoints + body-password-authenticated endpoints).
+CSRF_EXEMPT_EXACT = {
+    "/api/auth/login",
+    "/api/auth/register",
+    "/api/auth/google/session",
+    "/api/csrf",
+}
+def csrf_exempt_path(path: str) -> bool:
+    if path in CSRF_EXEMPT_EXACT:
+        return True
+    if path.startswith("/api/public/"):
+        return True
+    if path.endswith("/segment") or path.endswith("/view"):
+        return True
+    return False
+
+
+class CSRFMiddleware(BaseHTTPMiddleware):
+    """Double-submit-token CSRF: state-changing requests must include
+    X-CSRF-Token header matching the looma_csrf cookie."""
+    async def dispatch(self, request: Request, call_next):
+        if request.method in ("POST", "PUT", "PATCH", "DELETE"):
+            if not csrf_exempt_path(request.url.path):
+                cookie_t = request.cookies.get(CSRF_COOKIE)
+                header_t = request.headers.get("X-CSRF-Token")
+                if not cookie_t or not header_t or not secrets.compare_digest(cookie_t, header_t):
+                    return JSONResponse({"detail": "CSRF token invalid"}, status_code=403)
+        return await call_next(request)
+
+
+def set_csrf_cookie(response: Response, token: str) -> None:
+    # Non-HttpOnly so the SPA can read it and echo it as X-CSRF-Token
+    response.set_cookie(
+        key=CSRF_COOKIE, value=token,
+        max_age=7 * 24 * 3600, httponly=False,
+        secure=True, samesite="lax", path="/",
+    )
 
 def set_auth_cookie(response: Response, token: str) -> None:
     response.set_cookie(
@@ -226,8 +267,16 @@ async def transcribe_video(video_id: str, storage_path: str):
 async def root():
     return {"message": "Looma API up", "version": "2.0"}
 
+@api_router.get("/csrf")
+async def get_csrf(request: Request, response: Response):
+    """Issue a CSRF token. Frontend calls this on app load and echoes the cookie back as X-CSRF-Token on mutating requests."""
+    existing = request.cookies.get(CSRF_COOKIE)
+    token = existing or secrets.token_urlsafe(32)
+    set_csrf_cookie(response, token)
+    return {"csrf_token": token}
+
 @api_router.post("/auth/register", response_model=TokenOut)
-async def register(req: RegisterReq, response: Response):
+async def register(req: RegisterReq, request: Request, response: Response):
     if await db.users.find_one({"email": req.email.lower()}):
         raise HTTPException(400, "Email already registered")
     user = {"id": str(uuid.uuid4()), "email": req.email.lower(),
@@ -237,15 +286,17 @@ async def register(req: RegisterReq, response: Response):
     await db.users.insert_one(user)
     tok = create_token(user["id"])
     set_auth_cookie(response, tok)
+    set_csrf_cookie(response, request.cookies.get(CSRF_COOKIE) or secrets.token_urlsafe(32))
     return TokenOut(access_token=tok, user=user_to_out(user))
 
 @api_router.post("/auth/login", response_model=TokenOut)
-async def login(req: LoginReq, response: Response):
+async def login(req: LoginReq, request: Request, response: Response):
     u = await db.users.find_one({"email": req.email.lower()}, {"_id": 0})
     if not u or not u.get("password_hash") or not verify_pw(req.password, u["password_hash"]):
         raise HTTPException(401, "Invalid email or password")
     tok = create_token(u["id"])
     set_auth_cookie(response, tok)
+    set_csrf_cookie(response, request.cookies.get(CSRF_COOKIE) or secrets.token_urlsafe(32))
     return TokenOut(access_token=tok, user=user_to_out(u))
 
 @api_router.post("/auth/logout")
@@ -288,6 +339,7 @@ async def google_session(request: Request, response: Response):
         u["name"] = data.get("name") or u.get("name")
     tok = create_token(u["id"])
     set_auth_cookie(response, tok)
+    set_csrf_cookie(response, request.cookies.get(CSRF_COOKIE) or secrets.token_urlsafe(32))
     return TokenOut(access_token=tok, user=user_to_out(u))
 
 
@@ -719,6 +771,8 @@ async def export_my_data(user=Depends(get_current_user)):
 
 
 app.include_router(api_router)
+
+app.add_middleware(CSRFMiddleware)
 
 app.add_middleware(
     CORSMiddleware,

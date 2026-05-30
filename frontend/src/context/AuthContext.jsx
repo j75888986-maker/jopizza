@@ -1,11 +1,8 @@
 import { createContext, useContext, useEffect, useState, useCallback } from "react";
 import axios from "axios";
+import { ensureCsrf } from "@/lib/http";
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
-
-// Authenticated requests send the httpOnly cookie automatically
-axios.defaults.withCredentials = true;
-
 const AuthContext = createContext(null);
 
 export function AuthProvider({ children }) {
@@ -33,18 +30,21 @@ export function AuthProvider({ children }) {
   }, [refresh]);
 
   const login = useCallback(async (email, password) => {
+    await ensureCsrf();
     const r = await axios.post(`${API}/auth/login`, { email, password });
     setUser(r.data.user);
     return r.data.user;
   }, []);
 
   const register = useCallback(async (email, password, name) => {
+    await ensureCsrf();
     const r = await axios.post(`${API}/auth/register`, { email, password, name });
     setUser(r.data.user);
     return r.data.user;
   }, []);
 
   const loginWithGoogleSession = useCallback(async (sessionId) => {
+    await ensureCsrf();
     const r = await axios.post(`${API}/auth/google/session`, {}, { headers: { "X-Session-ID": sessionId } });
     setUser(r.data.user);
     return r.data.user;

@@ -1,152 +1,61 @@
-import { useEffect, useState, useRef } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 import axios from "axios";
 import { toast } from "sonner";
 import { Radio, Square, Copy, ArrowLeft, Users, Sparkles, CheckCircle2, Camera, Monitor, Layers } from "lucide-react";
+import { useMediaRecorder } from "@/hooks/useMediaRecorder";
 
 const CHUNK_DURATION_MS = 6000;
 
-/**
- * Webinar host studio — supports webcam / screen / both (PiP) live broadcasting.
- * MediaRecorder restarts every CHUNK_DURATION_MS to produce a playable per-chunk webm.
- */
 export default function WebinarHost() {
   const { id } = useParams();
-  const { authHeader, API } = useAuth();
+  const { API } = useAuth();
   const nav = useNavigate();
   const [w, setW] = useState(null);
-  const [mode, setMode] = useState("webcam"); // webcam | screen | both
-  const previewRef = useRef(null);
-  const streamRef = useRef(null);          // stream we record from
-  const screenStreamRef = useRef(null);
-  const camStreamRef = useRef(null);
-  const composeStop = useRef(false);
-  const recorderRef = useRef(null);
-  const seqRef = useRef(0);
-  const [elapsed, setElapsed] = useState(0);
-  const timer = useRef(null);
+  const [mode, setMode] = useState("webcam");
   const [uploadCount, setUploadCount] = useState(0);
   const [starting, setStarting] = useState(false);
 
-  const load = () => axios.get(`${API}/webinars/${id}`, { headers: authHeader() }).then(r=>setW(r.data)).catch(()=>{ toast.error("Webinar not found"); nav("/app/webinars"); });
-  useEffect(() => { load(); }, [id]);  // eslint-disable-line
-  useEffect(() => () => stopAll(), []);  // eslint-disable-line
-
-  const stopAll = () => {
-    if (recorderRef.current && recorderRef.current.state !== "inactive") {
-      try { recorderRef.current.stop(); } catch (e) { console.debug("recorder already stopped", e); }
-    }
-    composeStop.current = true;
-    [streamRef.current, screenStreamRef.current, camStreamRef.current].forEach(s => s?.getTracks().forEach(t => t.stop()));
-    streamRef.current = screenStreamRef.current = camStreamRef.current = null;
-    if (timer.current) { clearInterval(timer.current); timer.current = null; }
-  };
-
-  const uploadChunk = async (blob, seq) => {
+  const uploadChunk = useCallback(async (blob, seq) => {
     try {
       const fd = new FormData();
       fd.append("file", blob, `chunk_${seq}.webm`);
       fd.append("seq", String(seq));
-      await axios.post(`${API}/webinars/${id}/chunk`, fd, { headers: { ...authHeader() } });
+      await axios.post(`${API}/webinars/${id}/chunk`, fd);
       setUploadCount(c => c + 1);
     } catch (e) { console.error("chunk upload", e); }
-  };
+  }, [API, id]);
 
-  const buildStream = async () => {
-    if (mode === "webcam") {
-      const s = await navigator.mediaDevices.getUserMedia({ video: { width: 1280, height: 720 }, audio: true });
-      camStreamRef.current = s;
-      return s;
-    }
-    if (mode === "screen") {
-      const s = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: 30 }, audio: true });
-      screenStreamRef.current = s;
-      // attach mic
-      try {
-        const mic = await navigator.mediaDevices.getUserMedia({ audio: true });
-        mic.getAudioTracks().forEach(t => s.addTrack(t));
-      } catch { /* mic optional */ }
-      return s;
-    }
-    // both: canvas-composited PiP
-    const screen = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: 30 }, audio: true });
-    const cam = await navigator.mediaDevices.getUserMedia({ video: { width: 320, height: 240 }, audio: true });
-    screenStreamRef.current = screen; camStreamRef.current = cam;
+  const rec = useMediaRecorder({
+    chunkMs: CHUNK_DURATION_MS,
+    onChunk: uploadChunk,
+    bitrate: 1_500_000,
+  });
 
-    const sVid = document.createElement("video"); sVid.srcObject = screen; sVid.muted = true; await sVid.play();
-    const cVid = document.createElement("video"); cVid.srcObject = cam; cVid.muted = true; await cVid.play();
-    const canvas = document.createElement("canvas"); canvas.width = 1280; canvas.height = 720;
-    const ctx = canvas.getContext("2d");
-    composeStop.current = false;
-    const draw = () => {
-      if (composeStop.current) return;
-      ctx.drawImage(sVid, 0, 0, canvas.width, canvas.height);
-      const cw = 280, ch = 210, pad = 24;
-      ctx.save();
-      ctx.beginPath();
-      ctx.roundRect(canvas.width - cw - pad, canvas.height - ch - pad, cw, ch, 16);
-      ctx.clip();
-      ctx.drawImage(cVid, canvas.width - cw - pad, canvas.height - ch - pad, cw, ch);
-      ctx.restore();
-      ctx.lineWidth = 4; ctx.strokeStyle = "#FF6B6B";
-      ctx.beginPath();
-      ctx.roundRect(canvas.width - cw - pad, canvas.height - ch - pad, cw, ch, 16);
-      ctx.stroke();
-      requestAnimationFrame(draw);
-    };
-    draw();
-    const canvasStream = canvas.captureStream(30);
-    const audioTracks = [...cam.getAudioTracks(), ...screen.getAudioTracks()];
-    audioTracks.forEach(t => canvasStream.addTrack(t));
-    return canvasStream;
-  };
+  const load = useCallback(() => {
+    axios.get(`${API}/webinars/${id}`)
+      .then(r => setW(r.data))
+      .catch(() => { toast.error("Webinar not found"); nav("/app/webinars"); });
+  }, [API, id, nav]);
+
+  useEffect(() => { load(); }, [load]);
 
   const goLive = async () => {
     setStarting(true);
     try {
-      const stream = await buildStream();
-      streamRef.current = stream;
-      if (previewRef.current) {
-        previewRef.current.srcObject = stream;
-        previewRef.current.muted = true;
-        await previewRef.current.play().catch((e) => console.debug("autoplay blocked", e));
-      }
-      const mime = MediaRecorder.isTypeSupported("video/webm;codecs=vp8,opus") ? "video/webm;codecs=vp8,opus" : "video/webm";
-      seqRef.current = 0;
-
-      const startChunkRecorder = () => {
-        if (!streamRef.current) return;
-        const rec = new MediaRecorder(streamRef.current, { mimeType: mime, videoBitsPerSecond: 1_500_000 });
-        let chunks = [];
-        rec.ondataavailable = (e) => { if (e.data?.size > 0) chunks.push(e.data); };
-        rec.onstop = () => {
-          if (chunks.length) {
-            const blob = new Blob(chunks, { type: mime });
-            uploadChunk(blob, seqRef.current++);
-          }
-          if (streamRef.current) startChunkRecorder();
-        };
-        rec.start();
-        recorderRef.current = rec;
-        setTimeout(() => { if (rec.state !== "inactive") { try { rec.stop(); } catch (e) { console.debug("rec stop noop", e); } } }, CHUNK_DURATION_MS);
-      };
-
+      await rec.start({ mode, withMic: true });
       setW(prev => prev ? { ...prev, status: "live" } : prev);
-      startChunkRecorder();
-      timer.current = setInterval(() => setElapsed(e => e + 1), 1000);
       toast.success("You're live! Share your registration link.");
-    } catch (e) {
-      console.error(e);
-      toast.error(e?.name === "NotAllowedError" ? "Permission denied — grant camera/screen access." : "Couldn't start the stream");
-      stopAll();
+    } catch {
+      toast.error(rec.error || "Couldn't start the stream");
     } finally { setStarting(false); }
   };
 
   const endLive = async () => {
-    stopAll();
+    rec.stop();
     try {
-      const r = await axios.post(`${API}/webinars/${id}/end`, {}, { headers: authHeader() });
+      const r = await axios.post(`${API}/webinars/${id}/end`, {});
       setW(r.data);
       toast.success("Webinar ended. Recording saved to your library.");
     } catch { toast.error("Couldn't end webinar cleanly"); }
@@ -192,15 +101,15 @@ export default function WebinarHost() {
                   </button>
                 ))}
               </div>
-              <p className="text-xs text-ink/60 mt-3">When you go live, your browser will ask for camera/screen permission accordingly.</p>
+              {rec.error && <div className="mt-3 p-3 rounded-xl bg-coral/15 nb-border text-sm">{rec.error}</div>}
             </div>
           )}
           <div className="relative aspect-video rounded-2xl nb-border nb-shadow-lg overflow-hidden bg-ink">
             {w.status === "live" ? (
               <>
-                <video ref={previewRef} className="w-full h-full object-contain" autoPlay muted playsInline data-testid="webinar-live-preview"/>
+                <video ref={rec.livePreviewRef} className="w-full h-full object-contain" autoPlay muted playsInline data-testid="webinar-live-preview"/>
                 <div className="absolute top-3 left-3 bg-coral text-white nb-border px-3 py-1 rounded-full font-heading text-sm flex items-center gap-2">
-                  <span className="w-2 h-2 rounded-full bg-white animate-pulse"/> LIVE {fmt(elapsed)}
+                  <span className="w-2 h-2 rounded-full bg-white animate-pulse"/> LIVE {fmt(rec.elapsed)}
                 </div>
                 <div className="absolute top-3 right-3 bg-white nb-border px-3 py-1 rounded-full font-bold text-xs flex items-center gap-1.5">
                   <Sparkles size={12}/> {uploadCount} chunks streamed
