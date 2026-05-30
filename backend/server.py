@@ -331,8 +331,10 @@ async def serve_file(path: str):
     try:
         data, ctype = await asyncio.get_event_loop().run_in_executor(None, storage_get, path)
     except requests.HTTPError as e:
-        sc = e.response.status_code if e.response is not None else 500
-        raise HTTPException(sc, "File not found" if sc == 404 else "Storage error")
+        sc = e.response.status_code if e.response is not None else 502
+        raise HTTPException(404 if sc == 404 else 502, "File not found" if sc == 404 else "Storage error")
+    except Exception:
+        raise HTTPException(502, "Storage error")
     return Response(content=data, media_type=ctype, headers={"Cache-Control": "public, max-age=3600"})
 
 @api_router.get("/videos/{video_id}", response_model=Video)
